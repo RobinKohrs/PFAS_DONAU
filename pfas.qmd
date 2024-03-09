@@ -1,0 +1,142 @@
+---
+title: 'Donau PFAS (Forever Chemicals)'
+format:
+  html:
+    toc: true
+    code-fold: true
+    css: style.css
+execute:
+  warning: false
+---
+
+```{r}
+#| message: false
+#| warning: false
+#| echo: false
+
+#packages
+library(tidyverse)
+library(here)
+library(glue)
+library(sf)
+library(rajudas)
+library(plotly)
+library(jsonlite)
+library(mapview)
+library(readxl)
+library(DT)
+library(plotly)
+library(deeplr)
+deepl_auth = read_lines("~/.ssh/deepl")
+
+ggplot2::theme_set(theme_light())
+```
+
+
+
+# Daten
+```{r}
+#| echo: false
+path_data = here("data_raw/pfas/PFAS in Donau und Zubringern mit Koordinaten.xlsx")
+
+# coords
+data_coords = read_xlsx(path_data, sheet = "coordinates", skip = 1) %>% janitor::clean_names()
+
+#pfas
+data_pfas_raw = read_xlsx(path_data, sheet = "sw_with_loq")
+
+# data with coords
+data = data_pfas_raw %>%
+  select(-1) %>%
+  filter(!row_number()  %in% c(1:3)) %>%
+  janitor::clean_names() %>% 
+  mutate(across(pfba:n_et_fose, function(x) {
+    ifelse(x=="<LOQ", 0, as.numeric(x))
+  })) %>% 
+  pivot_longer(cols = pfba:n_et_fose,
+               names_to = "pfas_type",
+               values_to = "vals") %>% left_join(data_coords) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+```
+
+## Karte der Messorte
+
+```{r}
+data_locations = data %>% 
+  group_by(code) %>% 
+  slice_head(n=1)
+
+mapview(data_locations) 
+```
+
+## Messungen verschiedener PFAS in der Donau und Zubringern
+
+```{r}
+data_de_lookup = data %>%
+  select(sample) %>%
+  st_drop_geometry() %>%
+  distinct(sample) %>%
+  mutate(
+   sample_de = deeplr::translate2(sample, target_lang="de", source_lang="en", auth_key = deepl_auth),
+   sample_de = case_when(
+     sample == "Inn" ~ "Inn",
+     .default = sample_de
+   )
+  )
+
+data_de = data %>%
+  left_join(
+    data_de_lookup, join_by(sample)
+  )
+
+
+data_de %>%
+  st_drop_geometry() %>%
+  select(date, sample_de, pfas_type, vals) %>%
+  mutate(
+    vals = if_else(vals == 0, 0.0001, vals)
+  ) %>%
+  pivot_wider(
+    names_from = pfas_type,
+    values_from = vals
+  ) -> data_pfas
+
+op = makePath(here("output/article/pfas_zessner/pfas_zessner_all.csv"))
+write_csv(data_pfas, op)
+
+options(scipen = 999)
+data_pfas %>%
+  mutate(
+    date = as.Date(date)
+  ) %>% 
+  pivot_longer(cols = 3:ncol(.),values_to = "val", names_to = "pfas_type") %>%
+  group_by(pfas_type) %>% 
+  mutate(
+    possible_concern = if_else(sum(val > 0.65, na.rm = T) / n() > 0.5, T, F)
+  ) %>% 
+  ggplot(aes(date, val, label=sample_de, color=possible_concern)) +
+  geom_point() +
+  scale_y_log10() +
+  scale_color_manual(values=c("TRUE" = "darkred", "FALSE" = "lightgreen"), labels=c("TRUE" = "besorgniserregend?", "FALSE" = "nicht besorgniserregend?!"), name=NULL) +
+  scale_x_date(date_breaks = "1 years") +
+  labs(
+    x = NULL,
+    y = "ng/L",
+    title = "PFAS-Konzentration entlang der Donau für verschiedene PFAS-Typen",
+    subtitle = "hovern um genaue Werte zu sehen!"
+  )+
+  theme(
+    plot.title = element_text(hjust=.5, size = 20),
+    plot.subtitle = element_text(hjust=.5),
+    legend.position = "bottom",
+    legend.text = element_text(size=16)
+  ) +
+  facet_wrap(~pfas_type) -> pl
+```
+
+```{r}
+#| column: page
+
+ggplotly(pl, height=800) %>% layout(legend = list(orientation="h", name="name", title=list(text="Possible concern?")))
+```
+
