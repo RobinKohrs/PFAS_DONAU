@@ -1,5 +1,5 @@
 ---
-title: 'Donau PFAS (Forever Chemicals)'
+title: 'PFAS Messungen in der Donau'
 format:
   html:
     toc: true
@@ -34,10 +34,11 @@ ggplot2::theme_set(theme_light())
 
 
 
-# Daten
 ```{r}
 #| echo: false
-path_data = here("data_raw/pfas/PFAS in Donau und Zubringern mit Koordinaten.xlsx")
+
+# path_data = here("data_raw/pfas/PFAS in Donau und Zubringern mit Koordinaten.xlsx")
+path_data = "/home/robin/projects/dst/2023/novembro/2023-11-danube/data_raw/pfas/PFAS in Donau und Zubringern mit Koordinaten.xlsx"
 
 # coords
 data_coords = read_xlsx(path_data, sheet = "coordinates", skip = 1) %>% janitor::clean_names()
@@ -62,6 +63,9 @@ data = data_pfas_raw %>%
 ## Karte der Messorte
 
 ```{r}
+
+#| echo: false
+
 data_locations = data %>% 
   group_by(code) %>% 
   slice_head(n=1)
@@ -72,6 +76,8 @@ mapview(data_locations)
 ## Messungen verschiedener PFAS in der Donau und Zubringern
 
 ```{r}
+#| echo: false
+
 data_de_lookup = data %>%
   select(sample) %>%
   st_drop_geometry() %>%
@@ -136,6 +142,7 @@ data_pfas %>%
 
 ```{r}
 #| column: page
+#| echo: false
 
 ggplotly(pl, height=800) %>% layout(legend = list(orientation="h", name="name", title=list(text="Possible concern?")))
 ```
